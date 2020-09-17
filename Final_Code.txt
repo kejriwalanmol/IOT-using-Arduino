@@ -1,0 +1,192 @@
+#include <SoftwareSerial.h>
+#include <stdlib.h>
+#include <dht.h>
+
+
+#include "SIM900.h"
+#include "inetGSM.h"
+
+
+#define DHT11_PIN 7
+
+dht DHT;
+
+int ledPin = 13;
+
+
+
+int ldr = 1;             //analog pin to which LDR is connected
+int ldr_value = 0;        //variable to store LDR values
+
+
+// connect 10 to TX of ESP8266
+// connect 11 to RX of ESP8266
+SoftwareSerial ser(10, 11); // RX, TX
+
+
+// replace with your channel's thingspeak API key
+String apiKey = "48IX1GLWNQR8QBYP";
+
+//sms
+//If you want to use the Arduino functions to manage SMS, uncomment the lines below.
+#include "sms.h"
+SMSGSM sms;
+
+//To change pins for Software Serial, use the two lines in GSM.cpp.
+
+//GSM Shield for Arduino
+//www.open-electronics.org
+//this code is based on the example of Arduino Labs.
+
+//Simple sketch to send and receive SMS.
+
+int numdata;
+boolean started=false;
+char smsbuffer[160];
+char n[20];
+
+void setup()
+{
+
+//temp+hum
+
+  pinMode(ledPin, OUTPUT);    
+
+  Serial.begin(9600);
+  ser.begin(9600);
+  ser.println("AT+RST");
+
+ // Serial.begin(15200);   //start te serial monitor
+
+//Serial.begin(9600);//moisture
+}
+
+void loop()
+{
+//moisture
+// read the input on analog pin 0:
+int sensorValue = analogRead(A0); 
+//mySerial.println(sensorValue);
+delay(100);
+if(sensorValue>700)
+{ Serial.println("Dry Soil");}
+if((sensorValue>300)&&(sensorValue<600))
+{ Serial.println("Moist soil");}
+if((sensorValue>100)&&(sensorValue<300))
+{ Serial.println("water");
+}
+
+//ldr
+  
+  ldr_value = analogRead(ldr);          //reads the LDR values
+
+ //Serial.println(ldr_value);                 //prints the LDR values to serial monitor
+  
+  if(ldr_value>700)
+{ 
+Serial.println("insufficient sunlight");
+}
+if((ldr_value>0)&&(ldr_value<700))
+{ 
+Serial.println("sufficient sunlight");
+}
+  delay(1600); 
+
+  digitalWrite(ledPin, HIGH);   
+  delay(200);               
+  digitalWrite(ledPin, LOW);
+
+    int val = 0;
+  for(int i = 0; i < 10; i++) {
+      val += DHT.read11(DHT11_PIN);   
+      delay(500);
+  }
+
+  
+  Serial.print("Temperature = ");
+  Serial.println(DHT.temperature);
+ // Serial.print("moisture = ");
+  //Serial.println(sensorValue);      
+  //Serial.print("sunlight intensity = ");
+  //Serial.println(ldr_value);  
+
+  // TCP connection
+  String cmd = "AT+CIPSTART=\"TCP\",\"";
+  cmd += "184.106.153.149"; // api.thingspeak.com
+  cmd += "\",80";
+  ser.println(cmd);
+
+  if(ser.find("Error")){
+    Serial.println("AT+CIPSTART error");
+    return;
+  }
+
+  // prepare GET string
+  String getStr = "GET /update?api_key=";
+  getStr += apiKey;
+  getStr +="&field1=";
+  getStr += String(DHT.temperature);
+  getStr +="&field2=";
+  getStr += String(sensorValue);
+   getStr +="&field3=";
+  getStr += String(ldr_value);
+  getStr += "\r\n\r\n\r\n";
+
+  // send data length
+  cmd = "AT+CIPSEND=";
+  cmd += String(getStr.length());
+  ser.println(cmd);
+
+  if(ser.find(">")){
+    ser.print(getStr);
+  }
+  else{
+    ser.println("AT+CIPCLOSE");
+    // alert user
+    Serial.println("AT+CIPCLOSE");
+  }
+
+  // this delay is required before disabling the ESP8266 chip
+  delay(1600);
+
+
+
+
+ //sms
+//Serial connection.
+  Serial.begin(9600);
+  Serial.println("GSM Shield testing.");
+  //Start configuration of shield with baudrate.
+  //For http uses is raccomanded to use 4800 or slower.
+  if (gsm.begin(2400)){
+    Serial.println("\nstatus=READY");
+    started=true;  
+  }
+  else Serial.println("\nstatus=IDLE");
+  
+  if(started){
+    //Enable this two lines if you want to send an SMS.
+    if (sms.SendSMS("9448981374","Dear Farmer,your soil is dry,sunlight is insufficient,temperature is 27, From DigitalSoil Lab"))
+   
+    delay(16000);
+    if (sms.SendSMS("9448981374","Dear Farmer,your soil is not dry,sunlight is sufficient,temperature is 29, From DigitalSoil Lab"))
+    Serial.println("\nSMS sent OK");
+  }
+
+
+//sms
+ if(started){
+    //Read if there are messages on SIM card and print them.
+    if(gsm.readSMS(smsbuffer, 160, n, 20))
+    {
+      Serial.println(n);
+      Serial.println(smsbuffer);
+    }
+    delay(1000);
+  }
+
+
+}
+
+
+
